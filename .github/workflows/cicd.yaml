@@ -25,6 +25,7 @@ jobs:
       - name: Run linting
         run: |
           pip install ruff
+          ruff check app/ --fix --line-length=120 --exclude=app/tests
           ruff check app/ --line-length=120 --exclude=app/tests
 
       - name: Run tests
