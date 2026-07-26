@@ -1,9 +1,10 @@
-from flask import Flask, jsonify, render_template
-from prometheus_flask_exporter import PrometheusMetrics
-from prometheus_client import Counter
-import sqlite3
 import os
 import socket
+import sqlite3
+
+from flask import Flask, jsonify, render_template
+from prometheus_client import Counter
+from prometheus_flask_exporter import PrometheusMetrics
 
 
 app = Flask(__name__)
