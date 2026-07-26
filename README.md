@@ -9,7 +9,7 @@
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 > A production-grade, end-to-end DevOps project built from scratch using industry-standard tools.
-> Real app. Real pipeline. Real infrastructure. 100% Free.
+> Real app. Real pipeline. Real infrastructure.
 
 ---
 
