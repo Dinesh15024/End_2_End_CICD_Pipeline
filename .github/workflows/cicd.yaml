@@ -10,6 +10,20 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    services:
+      mongodb:
+        image: mongo:8
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd="mongosh --eval 'db.adminCommand(\"ping\")'"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    env:
+      MONGO_URI: mongodb://localhost:27017
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -19,8 +33,32 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
-        run: pip install -r app/requirements.txt
+      - name: Install application dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r app/requirements.txt
+
+      - name: Install test dependencies
+        run: |
+          pip install pytest pytest-cov httpx
+
+      - name: Wait for MongoDB
+        run: |
+          python - <<EOF
+          import time
+          from pymongo import MongoClient
+
+          for i in range(30):
+              try:
+                  MongoClient("mongodb://localhost:27017").admin.command("ping")
+                  print("MongoDB is ready!")
+                  break
+              except Exception:
+                  print("Waiting for MongoDB...")
+                  time.sleep(2)
+          else:
+              raise Exception("MongoDB did not become ready")
+          EOF
 
       - name: Run linting
         run: |
@@ -30,8 +68,7 @@ jobs:
 
       - name: Run tests
         run: |
-          pip install pytest pytest-cov
-          pytest app/tests/ -v --cov=app --cov-report=term-missing
+          pytest app/tests -v --cov=app --cov-report=term-missing
 
   build-and-push:
     runs-on: ubuntu-latest
@@ -113,9 +150,12 @@ jobs:
         run: |
           git config --global user.name "dinesh10"
           git config --global user.email "drs15024@gmail.com"
+
           git add k8/helm/ipl-voter/values.yaml
-          git commit -m "chore(cd): update image tag to ${{ github.sha }}"
-          git push origin HEAD:${{ github.ref }}
+
+          git diff --cached --quiet || git commit -m "chore(cd): update image tag to ${{ github.sha }}"
+
+          git push origin HEAD:${{ github.ref_name }}
 
   # notify:
   #   runs-on: ubuntu-latest
