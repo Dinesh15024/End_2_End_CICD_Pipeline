@@ -1,0 +1,27 @@
+[project]
+name = "end-2-end-cicd-pipeline"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Dinesh", email = "drs15024@gmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "fastapi>=0.141.1",
+    "gunicorn>=26.0.0",
+    "httpx>=0.28.1",
+    "jinja2>=3.1.6",
+    "prometheus-client>=0.26.0",
+    "prometheus-fastapi-instrumentator>=8.1.0",
+    "pymongo>=4.17.0",
+    "pytest>=9.1.1",
+    "uvicorn[standard]>=0.52.1",
+]
+
+[project.scripts]
+end-2-end-cicd-pipeline = "end_2_end_cicd_pipeline:main"
+
+[build-system]
+requires = ["uv_build>=0.12.0,<0.13.0"]
+build-backend = "uv_build"
