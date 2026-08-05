@@ -1,14 +1,22 @@
 import os
 import socket
-import sqlite3
+import time
 
-from flask import Flask, jsonify, render_template
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
+from pymongo import MongoClient
+from pymongo.errors import ServerSelectionTimeoutError
 from prometheus_client import Counter
-from prometheus_flask_exporter import PrometheusMetrics
+from prometheus_fastapi_instrumentator import Instrumentator
 
 
-app = Flask(__name__)
-metrics = PrometheusMetrics(app)
+app = FastAPI(title="IPL Team Voter")
+
+templates = Jinja2Templates(directory="templates")
+
+# Prometheus
+Instrumentator().instrument(app).expose(app)
 
 vote_counter = Counter(
     "votes_total",
@@ -16,7 +24,19 @@ vote_counter = Counter(
     ["team"]
 )
 
-DB_PATH = os.getenv("DB_PATH", "votes.db")
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://mongodb:27017")
+
+for _ in range(10):
+    try:
+        client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=2000)
+        client.admin.command("ping")
+        break
+    except ServerSelectionTimeoutError:
+        print("Waiting for MongoDB...")
+        time.sleep(2)
+
+db = client["ipl_voter"]
+votes_collection = db["votes"]
 
 TEAMS = [
     "Mumbai Indians",
@@ -33,90 +53,118 @@ TEAMS = [
 
 
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS votes (
-            team TEXT PRIMARY KEY,
-            count INTEGER DEFAULT 0
-        )
-    ''')
     for team in TEAMS:
-        c.execute("INSERT OR IGNORE INTO votes (team, count) VALUES (?, 0)", (team,))
-    conn.commit()
-    conn.close()
+        votes_collection.update_one(
+            {"team": team},
+            {"$setOnInsert": {"count": 0}},
+            upsert=True
+        )
 
 
 def get_votes():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT team, count FROM votes ORDER BY count DESC")
-    rows = c.fetchall()
-    conn.close()
-    return {row[0]: row[1] for row in rows}
+    rows = votes_collection.find({}, {"_id": 0}).sort("count", -1)
+    return {row["team"]: row["count"] for row in rows}
 
 
-def increment_vote(team_name):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("UPDATE votes SET count = count + 1 WHERE team = ?", (team_name,))
-    conn.commit()
-    conn.close()
+def increment_vote(team):
+    votes_collection.update_one(
+        {"team": team},
+        {"$inc": {"count": 1}}
+    )
 
 
-init_db()
+@app.on_event("startup")
+def startup():
+    init_db()
 
 
-@app.route("/")
+@app.get("/")
 def home():
     votes = get_votes()
-    return jsonify({
+
+    return {
         "app": "IPL Team Voter",
         "pod": socket.gethostname(),
         "version": os.getenv("APP_VERSION", "1.0.0"),
         "total_votes": sum(votes.values()),
         "teams": list(votes.keys())
-    })
+    }
 
 
-@app.route("/vote/<team_name>", methods=["POST"])
-def vote(team_name):
+@app.post("/vote/{team_name}")
+def vote(team_name: str):
+
     votes = get_votes()
-    matched = next((t for t in votes if t.lower().replace(" ", "-") == team_name.lower()), None)
+
+    matched = next(
+        (
+            team
+            for team in votes
+            if team.lower().replace(" ", "-") == team_name.lower()
+        ),
+        None,
+    )
+
     if not matched:
-        return jsonify({"error": f"Team '{team_name}' not found", "valid_teams": list(votes.keys())}), 404
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": f"Team '{team_name}' not found",
+                "valid_teams": list(votes.keys())
+            }
+        )
+
     increment_vote(matched)
-    # Increment Prometheus metric
     vote_counter.labels(team=matched).inc()
+
     updated = get_votes()
-    return jsonify({"message": f"Vote cast for {matched}!", "total_votes_for_team": updated[matched]}), 200
+
+    return {
+        "message": f"Vote cast for {matched}!",
+        "total_votes_for_team": updated[matched]
+    }
 
 
-@app.route("/results")
+@app.get("/results")
 def results():
     votes = get_votes()
-    sorted_teams = sorted(votes.items(), key=lambda x: x[1], reverse=True)
-    winner = sorted_teams[0][0] if sorted_teams[0][1] > 0 else "No votes yet!"
-    return jsonify({
+
+    leaderboard = sorted(
+        votes.items(),
+        key=lambda x: x[1],
+        reverse=True
+    )
+
+    winner = (
+        leaderboard[0][0]
+        if leaderboard and leaderboard[0][1] > 0
+        else "No votes yet!"
+    )
+
+    return {
         "winner": winner,
-        "leaderboard": [{"team": t, "votes": v} for t, v in sorted_teams]
-    })
+        "leaderboard": [
+            {"team": team, "votes": count}
+            for team, count in leaderboard
+        ]
+    }
 
 
-@app.route("/ui")
-def ui():
-    return render_template("index.html")
-
-
-@app.route("/health")
+@app.get("/health")
 def health():
-    return jsonify({"status": "ok"}), 200
+    return {"status": "ok"}
 
 
-@app.route("/ready")
+@app.get("/ready")
 def ready():
-    return jsonify({"status": "ready"}), 200
+    return {"status": "ready"}
 
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+@app.get("/ui", response_class=HTMLResponse)
+def ui(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="index.html",
+        context={
+            "title": "IPL Team Voter"
+        }
+    )

@@ -1,4 +1,7 @@
-flask==3.0.3
-gunicorn==22.0.0
-prometheus-flask-exporter==0.23.1
+fastapi
+uvicorn[standard]
+pymongo
 prometheus-client
+prometheus-fastapi-instrumentator
+gunicorn
+jinja2

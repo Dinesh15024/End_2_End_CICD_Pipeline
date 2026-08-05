@@ -1,0 +1,24 @@
+services:
+  app:
+    build: .
+    container_name: ipl-voter
+    ports:
+      - "5000:5000"
+    environment:
+      MONGO_URI: mongodb://mongodb:27017
+      APP_VERSION: 1.0.0
+    depends_on:
+      - mongodb
+    restart: unless-stopped
+
+  mongodb:
+    image: mongo:8
+    container_name: mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    restart: unless-stopped
+
+volumes:
+  mongodb_data:
