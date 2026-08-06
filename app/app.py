@@ -26,7 +26,7 @@ vote_counter = Counter(
 
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://mongodb:27017")
 
-for _ in range(10):
+for _ in range(3):
     try:
         client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=2000)
         client.admin.command("ping")
@@ -73,7 +73,7 @@ def increment_vote(team):
     )
 
 
-@app.on_event("startup")
+@app.lifespan("startup")
 def startup():
     init_db()
 
