@@ -1,6 +1,7 @@
 import os
 import socket
 import time
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -10,33 +11,6 @@ from pymongo.errors import ServerSelectionTimeoutError
 from prometheus_client import Counter
 from prometheus_fastapi_instrumentator import Instrumentator
 
-
-app = FastAPI(title="IPL Team Voter")
-
-templates = Jinja2Templates(directory="templates")
-
-# Prometheus
-Instrumentator().instrument(app).expose(app)
-
-vote_counter = Counter(
-    "votes_total",
-    "Total number of votes cast",
-    ["team"]
-)
-
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://mongodb:27017")
-
-for _ in range(3):
-    try:
-        client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=2000)
-        client.admin.command("ping")
-        break
-    except ServerSelectionTimeoutError:
-        print("Waiting for MongoDB...")
-        time.sleep(2)
-
-db = client["ipl_voter"]
-votes_collection = db["votes"]
 
 TEAMS = [
     "Mumbai Indians",
@@ -51,6 +25,19 @@ TEAMS = [
     "Gujarat Titans"
 ]
 
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
+
+for _ in range(3):
+    try:
+        client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=2000)
+        client.admin.command("ping")
+        break
+    except ServerSelectionTimeoutError:
+        print("Waiting for MongoDB...")
+        time.sleep(2)
+
+db = client["ipl_voter"]
+votes_collection = db["votes"]
 
 def init_db():
     for team in TEAMS:
@@ -59,6 +46,26 @@ def init_db():
             {"$setOnInsert": {"count": 0}},
             upsert=True
         )
+        
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    init_db()
+
+    yield
+
+app = FastAPI(title="IPL Team Voter", lifespan=lifespan)
+
+templates = Jinja2Templates(directory="templates")
+
+# Prometheus
+Instrumentator().instrument(app).expose(app)
+
+vote_counter = Counter(
+    "votes_total",
+    "Total number of votes cast",
+    ["team"]
+)
 
 
 def get_votes():
@@ -71,11 +78,6 @@ def increment_vote(team):
         {"team": team},
         {"$inc": {"count": 1}}
     )
-
-
-@app.lifespan("startup")
-def startup():
-    init_db()
 
 
 @app.get("/")
