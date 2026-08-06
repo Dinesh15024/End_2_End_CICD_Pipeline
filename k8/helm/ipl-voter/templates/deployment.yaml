@@ -24,6 +24,8 @@ spec:
           env:
             - name: DB_PATH
               value: /data/votes.db
+            - name: MONGO_URI
+              value: mongodb://mongodb:27017
           volumeMounts:
             - name: votes-storage
               mountPath: /data
