@@ -25,12 +25,17 @@ TEAMS = [
     "Gujarat Titans"
 ]
 
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
+MONGO_URI = os.getenv("MONGO_URI")
 
-for _ in range(3):
+if not MONGO_URI:
+    raise RuntimeError("MONGO_URI environment variable is not set")
+
+
+while True:
     try:
         client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=2000)
         client.admin.command("ping")
+        print("Connected to MongoDB")
         break
     except ServerSelectionTimeoutError:
         print("Waiting for MongoDB...")
@@ -49,10 +54,23 @@ def init_db():
         
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
+    global client, votes_collection
+
+    mongo_uri = os.getenv("MONGO_URI")
+    if not mongo_uri:
+        raise RuntimeError("MONGO_URI environment variable is not set")
+
+    client = MongoClient(mongo_uri)
+    client.admin.command("ping")
+
+    db = client["ipl_voter"]
+    votes_collection = db["votes"]
+
     init_db()
 
     yield
+
+    client.close()
 
 app = FastAPI(title="IPL Team Voter", lifespan=lifespan)
 
